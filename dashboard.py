@@ -44,9 +44,11 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ====================== ORCHESTRATOR KONFİGÜRASYONU ======================
-VARUX_BASE_DIR = Path(r"C:\Users\s3loc_\Desktop\VARUX-Elite-Edition")
+# Proje kök dizinini dinamik olarak belirle (platform bağımsız)
+VARUX_BASE_DIR = Path(__file__).resolve().parent
 VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
-sys.path.insert(0, str(VARUX_MODULE_DIR))
+if str(VARUX_MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(VARUX_MODULE_DIR))
 
 # ====================== GELİŞMİŞ MODÜL YÖNETİCİSİ ======================
 class AdvancedModuleOrchestrator:
@@ -94,7 +96,7 @@ class AdvancedModuleOrchestrator:
                 module_path.stem.replace(" ", "_"),
                 str(module_path)
             )
-            if spec is None:
+            if spec is None or spec.loader is None:
                 raise ImportError(f"Module spec could not be created for {module_path}")
                 
             module = importlib.util.module_from_spec(spec)
