@@ -43,9 +43,32 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+
+def _resolve_module_dir() -> Path:
+    """Return the best-guess path to the ``varux`` package.
+
+    The previous implementation hard-coded a Windows path, causing imports to
+    fail in other environments. This helper prefers a ``varux`` directory
+    alongside the dashboard entrypoint and falls back to the current working
+    directory to remain portable.
+    """
+
+    script_dir = Path(__file__).resolve().parent
+    candidates = [script_dir / "varux", Path.cwd() / "varux"]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Default to the first candidate so callers always receive a usable path
+    # even if the directory is missing (helps with more descriptive errors
+    # later on instead of NameErrors).
+    return candidates[0]
+
+
 # ====================== ORCHESTRATOR KONFİGÜRASYONU ======================
-VARUX_BASE_DIR = Path(r"C:\Users\s3loc_\Desktop\VARUX-Elite-Edition")
-VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
+VARUX_MODULE_DIR = _resolve_module_dir()
+VARUX_BASE_DIR = VARUX_MODULE_DIR.parent
 sys.path.insert(0, str(VARUX_MODULE_DIR))
 
 # ====================== GELİŞMİŞ MODÜL YÖNETİCİSİ ======================

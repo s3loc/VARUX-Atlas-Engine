@@ -56,7 +56,6 @@ from tqdm import tqdm
 
 # Async imports
 import aiohttp
-import asyncio
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
