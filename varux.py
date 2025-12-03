@@ -47,11 +47,22 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def load_module(module_path):
-    """Boşluklu dosya adları için özel yükleyici (Python import boşluk desteklemez)"""
+    """Boşluklu dosya adları için güvenli modül yükleyici.
+
+    ``spec_from_file_location`` nadiren de olsa ``None`` döndürebilir veya
+    "loader" içermeyebilir. Bu durumda mevcut kod ``AttributeError`` ile
+    kullanıcıyı yarı yolda bırakıyordu. Yükleyici bulunamazsa anlaşılır bir
+    ``RuntimeError`` fırlatarak hangi dosyanın yüklenemediğini bildiriyoruz ve
+    beklenmedik hataların önüne geçiyoruz.
+    """
+
     spec = importlib.util.spec_from_file_location(
         module_path.stem.replace(" ", "_"),  # Boşlukları _ ile değiştir
         str(module_path)
     )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Modül yüklenemedi: {module_path}")
+
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_path.stem.replace(" ", "_")] = module
     spec.loader.exec_module(module)

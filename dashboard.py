@@ -43,32 +43,21 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-
-def _resolve_module_dir() -> Path:
-    """Return the best-guess path to the ``varux`` package.
-
-    The previous implementation hard-coded a Windows path, causing imports to
-    fail in other environments. This helper prefers a ``varux`` directory
-    alongside the dashboard entrypoint and falls back to the current working
-    directory to remain portable.
-    """
-
-    script_dir = Path(__file__).resolve().parent
-    candidates = [script_dir / "varux", Path.cwd() / "varux"]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    # Default to the first candidate so callers always receive a usable path
-    # even if the directory is missing (helps with more descriptive errors
-    # later on instead of NameErrors).
-    return candidates[0]
-
-
 # ====================== ORCHESTRATOR KONFİGÜRASYONU ======================
-VARUX_MODULE_DIR = _resolve_module_dir()
-VARUX_BASE_DIR = VARUX_MODULE_DIR.parent
+# Modülleri dinamik olarak bulabilmek için çalışma dizinini kullanıyoruz.
+# Kullanıcı isterse ``VARUX_BASE_DIR`` ortam değişkeniyle özel bir dizin
+# tanımlayabilir; aksi halde bu dosyanın bulunduğu dizinin kökü kullanılır.
+ENV_BASE_DIR = os.getenv("VARUX_BASE_DIR")
+DEFAULT_BASE_DIR = Path(__file__).resolve().parent
+VARUX_BASE_DIR = Path(ENV_BASE_DIR).expanduser() if ENV_BASE_DIR else DEFAULT_BASE_DIR
+VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
+
+# Modül yolu bulunamazsa varsayılan çalışma dizinine geri dön ve uyarı ver.
+if not VARUX_MODULE_DIR.exists():
+    print(f"[WARN] VARUX modül dizini bulunamadı: {VARUX_MODULE_DIR}. Varsayılana dönülüyor.")
+    VARUX_BASE_DIR = DEFAULT_BASE_DIR
+    VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
+
 sys.path.insert(0, str(VARUX_MODULE_DIR))
 
 # ====================== GELİŞMİŞ MODÜL YÖNETİCİSİ ======================
