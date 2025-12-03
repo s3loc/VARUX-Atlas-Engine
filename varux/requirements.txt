@@ -37,6 +37,7 @@ mininet
 netifaces
 numpy
 openpyxl
+openai
 os
 pandas
 pathlib
