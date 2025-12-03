@@ -43,6 +43,16 @@ class ConfigManager:
                 "default_timeout": 30,
                 "max_retries": 3,
             },
+            "ai": {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "api_key_env": "VARUX_AI_API_KEY",
+                "timeout": 30,
+                "rate_limit": {
+                    "requests_per_minute": 60,
+                    "burst_limit": 10,
+                },
+            },
             "scan": {
                 "rate_limit": {
                     "requests_per_second": 10,
