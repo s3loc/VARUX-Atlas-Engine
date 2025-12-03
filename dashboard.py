@@ -44,8 +44,20 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ====================== ORCHESTRATOR KONFİGÜRASYONU ======================
-VARUX_BASE_DIR = Path(r"C:\Users\s3loc_\Desktop\VARUX-Elite-Edition")
+# Modülleri dinamik olarak bulabilmek için çalışma dizinini kullanıyoruz.
+# Kullanıcı isterse ``VARUX_BASE_DIR`` ortam değişkeniyle özel bir dizin
+# tanımlayabilir; aksi halde bu dosyanın bulunduğu dizinin kökü kullanılır.
+ENV_BASE_DIR = os.getenv("VARUX_BASE_DIR")
+DEFAULT_BASE_DIR = Path(__file__).resolve().parent
+VARUX_BASE_DIR = Path(ENV_BASE_DIR).expanduser() if ENV_BASE_DIR else DEFAULT_BASE_DIR
 VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
+
+# Modül yolu bulunamazsa varsayılan çalışma dizinine geri dön ve uyarı ver.
+if not VARUX_MODULE_DIR.exists():
+    print(f"[WARN] VARUX modül dizini bulunamadı: {VARUX_MODULE_DIR}. Varsayılana dönülüyor.")
+    VARUX_BASE_DIR = DEFAULT_BASE_DIR
+    VARUX_MODULE_DIR = VARUX_BASE_DIR / "varux"
+
 sys.path.insert(0, str(VARUX_MODULE_DIR))
 
 # ====================== GELİŞMİŞ MODÜL YÖNETİCİSİ ======================
