@@ -80,9 +80,10 @@ def main_menu():
         print(f"{Fore.YELLOW}[3]{Fore.WHITE} Tam Otomatik Pentest (varuxctl)               ")
         print(f"{Fore.YELLOW}[4]{Fore.WHITE} ICS/SCADA Derin Keşif (VARUX OT Discovery Framework)")
         print(f"{Fore.YELLOW}[5]{Fore.WHITE} SQLMap Elite Wrapper (sqlmap_wrapper)         ")
-        print(f"{Fore.YELLOW}[6]{Fore.WHITE} Çıkış                                         \n")
+        print(f"{Fore.YELLOW}[6]{Fore.WHITE} AI Kod Asistanı (OpenAI)                       ")
+        print(f"{Fore.YELLOW}[7]{Fore.WHITE} Çıkış                                         \n")
 
-        secim = input(f"{Fore.CYAN}Seçiminiz (1-6): {Fore.WHITE}").strip()
+        secim = input(f"{Fore.CYAN}Seçiminiz (1-7): {Fore.WHITE}").strip()
 
         if secim == "1":
             try:
@@ -146,6 +147,27 @@ def main_menu():
                 print(f"{Fore.RED}sqlmap_wrapper hatası: {e}")
 
         elif secim == "6":
+            try:
+                assistant_path = VARUX_DIR / "ai_assistant.py"
+                module = load_module(assistant_path)
+                if hasattr(module, 'AIAssistant'):
+                    assistant = module.AIAssistant()
+                    if not assistant.available():
+                        print(f"{Fore.RED}OpenAI API anahtarı bulunamadı (OPENAI_API_KEY).")
+                    else:
+                        prompt = input(f"{Fore.CYAN}Asistan isteği: {Fore.WHITE}")
+                        notes = input(f"{Fore.CYAN}Ek bağlam/özet (opsiyonel): {Fore.WHITE}")
+                        result = assistant.generate_assistance(prompt, {'notes': notes})
+                        if result.get('error'):
+                            print(f"{Fore.RED}Asistan hatası: {result['error']}")
+                        else:
+                            print(f"\n{Fore.GREEN}Yanıt ({result.get('model', 'OpenAI')}):\n{Fore.WHITE}{result.get('assistant_response')}")
+                else:
+                    print(f"{Fore.YELLOW}Modül yüklendi ama 'AIAssistant' sınıfı yok.")
+            except Exception as e:
+                print(f"{Fore.RED}ai_assistant hatası: {e}")
+
+        elif secim == "7":
             clear_screen()
             print(f"{Fore.GREEN}VARUX kapatılıyor... Güvenli kalın!\n")
             break

@@ -94,6 +94,13 @@ class AdvancedModuleOrchestrator:
                 'function': 'run_advanced_scan',
                 'async': False,
                 'class': 'SQLMapWrapper'
+            },
+            'ai_assistant': {
+                'name': 'OpenAI Kod Asistanı',
+                'file': 'ai_assistant.py',
+                'function': 'generate_assistance',
+                'async': False,
+                'class': 'AIAssistant'
             }
         }
         self.executor = ThreadPoolExecutor(max_workers=10)
@@ -165,7 +172,7 @@ class AdvancedModuleOrchestrator:
                 'execution_time': 0
             }
 
-    async def execute_async_module(self, module_info, target):
+    async def execute_async_module(self, module_info, *args, **kwargs):
         """Asenkron modül çalıştırma"""
         try:
             module_path = VARUX_MODULE_DIR / module_info['file']
@@ -178,15 +185,15 @@ class AdvancedModuleOrchestrator:
                 # Sınıf tabanlı modüller
                 class_obj = getattr(module, module_info['class'])()
                 if module_info['async']:
-                    result = await getattr(class_obj, module_info['function'])(target)
+                    result = await getattr(class_obj, module_info['function'])(*args, **kwargs)
                 else:
-                    result = getattr(class_obj, module_info['function'])(target)
+                    result = getattr(class_obj, module_info['function'])(*args, **kwargs)
             else:
                 # Fonksiyon tabanlı modüller
                 if module_info['async']:
-                    result = await getattr(module, module_info['function'])(target)
+                    result = await getattr(module, module_info['function'])(*args, **kwargs)
                 else:
-                    result = getattr(module, module_info['function'])(target)
+                    result = getattr(module, module_info['function'])(*args, **kwargs)
                     
             return result
             
@@ -194,7 +201,7 @@ class AdvancedModuleOrchestrator:
             print(f"❌ Async module execution error: {e}")
             return {"error": str(e)}
 
-    def execute_sync_module(self, module_info, target):
+    def execute_sync_module(self, module_info, *args, **kwargs):
         """Senkron modül çalıştırma"""
         try:
             module_path = VARUX_MODULE_DIR / module_info['file']
@@ -206,10 +213,10 @@ class AdvancedModuleOrchestrator:
             if 'class' in module_info:
                 # Sınıf tabanlı modüller
                 class_obj = getattr(module, module_info['class'])()
-                result = getattr(class_obj, module_info['function'])(target)
+                result = getattr(class_obj, module_info['function'])(*args, **kwargs)
             else:
                 # Fonksiyon tabanlı modüller
-                result = getattr(module, module_info['function'])(target)
+                result = getattr(module, module_info['function'])(*args, **kwargs)
                 
             return result
             
@@ -341,6 +348,30 @@ class AdvancedModuleOrchestrator:
     def get_scan_status(self, scan_id):
         """Tarama durumunu getir"""
         return self.active_scans.get(scan_id, {'status': 'unknown'})
+
+    def invoke_assistant(self, prompt, context=None):
+        """OpenAI tabanlı kod asistanını çalıştır."""
+
+        try:
+            module_info = self.modules.get('ai_assistant')
+            if not module_info:
+                return {"error": "Asistan modülü kayıtlı değil."}
+
+            if module_info.get('async'):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(
+                        self.execute_async_module(module_info, prompt, context)
+                    )
+                finally:
+                    loop.close()
+
+            return self.execute_sync_module(module_info, prompt, context)
+
+        except Exception as e:
+            print(f"❌ Assistant invocation error: {e}")
+            return {"error": str(e)}
 
 # ====================== VERİTABANI KURULUMU ======================
 def init_database():
@@ -980,7 +1011,47 @@ def create_dashboard_layout():
                         'borderRadius': '12px',
                         'boxShadow': '0 0 20px rgba(0,255,153,0.15)'
                     }),
-                    
+
+                    dbc.Card([
+                        dbc.CardHeader(html.H5("🤖 OpenAI Güvenlik Asistanı", className="mb-0", style={
+                            'fontSize': '1rem',
+                            'color': '#00ddff',
+                            'textShadow': '0 0 5px rgba(0,221,255,0.35)'
+                        })),
+                        dbc.CardBody([
+                            dbc.Label("İstek veya soru", style={'fontSize': '0.85rem', 'color': '#00ddff'}),
+                            dcc.Textarea(
+                                id='assistant-prompt',
+                                placeholder='Örn: Bulunan Modbus cihazları için hızlı sertifika sertleştirme adımları, kod öner...',
+                                style={
+                                    'width': '100%',
+                                    'backgroundColor': '#0F1114',
+                                    'border': '1px solid #00ddff',
+                                    'color': 'white',
+                                    'borderRadius': '8px',
+                                    'minHeight': '120px',
+                                    'padding': '10px',
+                                    'fontSize': '0.9rem'
+                                }
+                            ),
+                            dbc.Button(
+                                "🤖 Kod öner", id='ask-assistant', color='info', className='mt-3 w-100',
+                                style={
+                                    'backgroundColor': '#00ddff',
+                                    'border': 'none',
+                                    'color': '#0F1114',
+                                    'fontWeight': 'bold',
+                                    'borderRadius': '8px'
+                                }
+                            ),
+                            html.Div(id='assistant-response', className='mt-3', style={'fontSize': '0.9rem'})
+                        ], style={'padding': '1.2rem', 'backgroundColor': '#1a1a2e'})
+                    ], className="mb-4", style={
+                        'border': '1px solid #00ddff',
+                        'borderRadius': '12px',
+                        'boxShadow': '0 0 20px rgba(0,221,255,0.15)'
+                    }),
+
                     # Cihaz Tablosu
                     dbc.Card([
                         dbc.CardHeader(html.H5("📋 Keşfedilen Cihazlar", className="mb-0", style={
@@ -1682,6 +1753,38 @@ def update_scan_progress(n, scan_id):
     else:
         return ""
 
+# OpenAI asistan entegrasyonu
+@app.callback(
+    Output('assistant-response', 'children'),
+    Input('ask-assistant', 'n_clicks'),
+    [State('assistant-prompt', 'value'),
+     State('target-input', 'value'),
+     State('user-store', 'data')]
+)
+def run_ai_assistant(n_clicks, prompt, target, user_data):
+    if not n_clicks:
+        return dash.no_update
+
+    if not prompt:
+        return dbc.Alert("Lütfen asistan için bir istek veya soru girin.", color="warning", style={'fontSize': '0.85rem'})
+
+    context = {
+        'target': target,
+        'summary': {
+            'total_devices': LIVE_DATA.get('total_devices', 0),
+            'high_risk_devices': LIVE_DATA.get('high_risk_devices', 0)
+        },
+        'devices': LIVE_DATA.get('devices', [])[:5],
+        'notes': f"Kullanıcı: {user_data.get('username')}" if user_data else None
+    }
+
+    assistant_result = orchestrator.invoke_assistant(prompt, context)
+    if assistant_result.get('error'):
+        return dbc.Alert(f"Asistan hatası: {assistant_result['error']}", color="danger", style={'fontSize': '0.85rem'})
+
+    response_text = assistant_result.get('assistant_response', 'Asistan yanıt üretemedi.')
+    return dbc.Alert(dcc.Markdown(response_text), color="info", style={'fontSize': '0.9rem'})
+
 # Rapor indirme
 @app.callback(
     Output("download-excel", "data"),
@@ -1798,6 +1901,34 @@ def api_get_scan_results():
         'data': LIVE_DATA
     })
 
+@server.route('/api/v1/assistant', methods=['POST'])
+def api_ai_assistant():
+    api_key = request.headers.get('Authorization', '').replace('Bearer ', '')
+    user = api_service.validate_api_key(api_key)
+
+    if not user:
+        return jsonify({'error': 'Geçersiz API anahtarı'}), 401
+
+    payload = request.get_json() or {}
+    prompt = payload.get('prompt')
+    context = payload.get('context', {})
+
+    if not prompt:
+        return jsonify({'error': 'prompt gereklidir'}), 400
+
+    context.setdefault('summary', {
+        'total_devices': LIVE_DATA.get('total_devices', 0),
+        'high_risk_devices': LIVE_DATA.get('high_risk_devices', 0)
+    })
+    context.setdefault('devices', LIVE_DATA.get('devices', [])[:5])
+    context.setdefault('notes', f"API kullanıcı: {user[0]}")
+
+    api_service.log_api_request(api_key, '/api/v1/assistant', request.remote_addr, request.headers.get('User-Agent'))
+    assistant_result = orchestrator.invoke_assistant(prompt, context)
+
+    status_code = 200 if not assistant_result.get('error') else 400
+    return jsonify(assistant_result), status_code
+
 @server.route('/api/v1/start-scan', methods=['POST'])
 def api_start_scan():
     api_key = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -1836,9 +1967,9 @@ if __name__ == '__main__':
     print("🔑 Demo Giriş: admin / admin123")
     print("🎯 Orchestrator: Aktif")
     print("📧 E-posta Servisi: Aktif")
-    print("📊 Rapor Servisi: Aktif") 
+    print("📊 Rapor Servisi: Aktif")
     print("🔌 API Servisi: Aktif")
     print("💾 Veritabanı: Başlatıldı")
     print("⚡ Modül Entegrasyonu: Tamamlandı")
-    
+
     app.run(debug=True, port=8050, host='0.0.0.0')
