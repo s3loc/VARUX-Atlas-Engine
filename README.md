@@ -6,113 +6,155 @@
 
 ## 🧭 Genel Bakış
 
-**VARUX Atlas Engine**, modern endüstriyel ağlar, web uygulamaları ve zafiyetlerin merkezi, otomatik ve akıllı analizini sağlayan modüler bir siber güvenlik platformudur. Saldırı simülasyonu, varlık keşfi, dinamik raporlama ve tam orchestrasyon ile kurumsal seviyede görünürlük ve kontrol sunar.
+**VARUX Atlas Engine**, endüstriyel ağlar (ICS/SCADA), web uygulamaları ve veritabanı katmanındaki zafiyetleri tek bir orkestrasyon altında toplayan modüler bir siber güvenlik platformudur. Saldırı simülasyonu, varlık keşfi, dinamik raporlama ve sürekli görünürlük sağlayarak kurumların mavi/kırmızı ekip süreçlerini hızlandırır.
 
 ---
 
 ## 🚀 Temel Özellikler
 
-- **Merkezi Orkestrasyon:** Tüm modüllerin ve testlerin tek merkezden yönetimi
-- **Endüstriyel Protokol Desteği:** Modbus, S7Comm, DNP3, BACnet, Profinet analizleri ve aktif/pasif keşif
-- **Yapay Zeka Destekli Güvenlik:** Web ve ağdaki bilinmeyen zafiyetler için davranışsal analiz
-- **Otomatik Sızma Testi:** Keşif ve sömürü akışıyla uçtan uca güvenlik simülasyonu
-- **Dinamik Raporlama:** Topoloji, risk puanı, zaman çizelgeli ve canlı görsel raporlar
-- **Gelişmiş SQL Zafiyet Analizi:** SQLMap Wrapper ve evasion teknikleriyle modern injection analizi
+- **Merkezi Orkestrasyon:** Tüm modülleri tek menüden çalıştırma, paralel görev kontrolü
+- **Endüstriyel Protokol Desteği:** Modbus, S7Comm, DNP3, BACnet, Profinet için pasif/aktif keşif
+- **Yapay Zeka Destekli Güvenlik:** Web ve ağ vektörlerinde davranışsal analiz ve öneri üretimi
+- **Otomatik Sızma Testi:** Keşif → sömürü → raporlama akışını uçtan uca otomatikleştirme
+- **Dinamik Raporlama:** Topoloji, risk puanı, zaman çizelgesi ve gerçek zamanlı görsel raporlar
+- **Gelişmiş SQL Zafiyet Analizi:** SQLMap Wrapper ile evasive payload ve tamper otomasyonu
 
 ---
 
-## 🏗️ Mimari Akış Diyagramı
+## 🏗️ Mimari Diyagramlar
 
+### Genel Akış
 ```mermaid
 flowchart TD
-    subgraph Kullanıcı Arayüzü
-        A1[Web Dashboard]
-        A2[CLI Terminal]
+    subgraph UI["Kullanıcı Arayüzü"]
+        A1[Web Dashboard (Dash)]
+        A2[CLI Terminal (varux.py)]
     end
 
-    subgraph Orchestrator & Yönetim
+    subgraph ORC["Orchestrator & Yönetim"]
         B1[Atlas Orchestrator]
+        B2[Görev Kuyruğu / Paralel Çalıştırıcı]
     end
 
-    subgraph Güvenlik Modülleri
+    subgraph MOD["Güvenlik Modülleri"]
         M1[Industrial Recon]
         M2[Noxım Web Scanner]
         M3[VaruxCtl Pentest]
         M4[OT Discovery]
-        M5[SQLMap Elite]
+        M5[SQLMap Elite Wrapper]
+        M6[AI Kod Asistanı]
     end
 
-    subgraph Veri & Raporlama
-        DB[Ortak SQLite Veri Tabanı]
-        RP[Raporlama/Görselleştirme]
+    subgraph DATA["Veri Katmanı & Raporlama"]
+        DB[(SQLite / JSON Kayıtları)]
+        RP[Raporlama & Görselleştirme]
+        LG[Log / Audit Trail]
     end
 
-    %% Bağlantılar
     A1 --> B1
     A2 --> B1
 
-    B1 --> M1
-    B1 --> M2
-    B1 --> M3
-    B1 --> M4
-    B1 --> M5
+    B1 --> B2
+    B1 --> MOD
 
     M1 --> DB
     M2 --> DB
     M3 --> DB
     M4 --> DB
     M5 --> DB
+    M6 --> DB
 
-    DB --> B1
     DB --> RP
+    DB --> B1
     RP --> A1
     RP --> A2
+    LG --> RP
+```
+
+### Modül Veri Akışı
+```mermaid
+sequenceDiagram
+    participant User as Kullanıcı
+    participant CLI as CLI (varux.py)
+    participant Mod as Seçili Modül
+    participant DB as Kayıt/Veri Katmanı
+    participant Dash as Dashboard
+
+    User->>CLI: Menülerden modül seçer
+    CLI->>Mod: Modülü dinamik yükle & çalıştır
+    Mod-->>DB: Bulguları, logları, topoloji verilerini yazar
+    Mod-->>User: Canlı çıktı / uyarılar
+    Dash-->>DB: Yeni verileri periyodik okur
+    DB-->>Dash: Grafikler, raporlar, risk skorları
+    Dash-->>User: Görsel raporlama / indirme
 ```
 
 ---
 
 ## 📦 Kurulum
 
-**Gereksinimler:**  
-- Python 3.8+  
-- Paketler: `flask`, `dash`, `pandas`, `plotly`, `scapy`, `pymodbus`, `aiosnmp`, `requests`, `colorama` vb.
+**Gereksinimler**
+- Python 3.8+
+- Temel paketler: `flask`, `dash`, `pandas`, `plotly`, `scapy`, `pymodbus`, `aiosnmp`, `requests`, `colorama` vb.
 
-**Adımlar:**
+**Adımlar**
 ```bash
 git clone https://github.com/username/VARUX-Atlas-Engine.git
 cd VARUX-Atlas-Engine
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r varux/requirements.txt
 ```
-Opsiyonel: SQLMap entegrasyonu için sisteminizde sqlmap kurulu olmalı veya proje dizininde bulunmalıdır.
+> Opsiyonel: SQLMap entegrasyonu için sisteminizde `sqlmap` kurulu olmalı veya proje dizininde bulunmalıdır.
 
 ---
 
-## 💻 Kullanım
+## 💻 Hızlı Başlangıç
 
-### Web Dashboard:
+### CLI Orkestratör (Önerilen)
+Projeyi kök dizinden çalıştırın:
+```bash
+python varux.py
+```
+Menü üzerinden istediğiniz modülü seçip çalıştırabilirsiniz.
+
+### Web Dashboard
 ```bash
 python dashboard.py
 ```
-- Adres: [http://127.0.0.1:8050](http://127.0.0.1:8050)
+- Arayüz: [http://127.0.0.1:8050](http://127.0.0.1:8050)
 - Varsayılan giriş:
-    - Kullanıcı: `admin`
-    - Şifre: `admin123`
+  - Kullanıcı: `admin`
+  - Şifre: `admin123`
 
-### CLI Terminal:
+### Seçili Modülleri Doğrudan Çalıştırma
 ```bash
-python atlas.py
+python varux/industrial_recon.py   # ICS/SCADA keşfi
+python varux/noxım.py              # Web & SQLi analizi
+python varux/varuxctl.py           # Otomatik pentest akışı
+python "varux/VARUX OT Discovery Framework.py"  # OT topoloji keşfi
+python varux/sqlmap_wrapper.py     # SQLMap Elite Wrapper
 ```
-- Menü üzerinden isteğe bağlı modül seçip test/analiz başlatabilirsiniz.
 
 ---
 
 ## 🔧 Modüller ve Fonksiyonları
 
-- **Industrial Recon:** Endüstriyel ağda pasif izleme, cihaz/makine tanıma, pcap analizi
-- **Noxım Web Scanner:** AI tabanlı web zafiyeti, WAF bypass ve gelişmiş payload analiz
-- **VaruxCtl Pentest:** Otomatik saldırı simülasyonu ve uçtan uca pentest döngüsü
-- **OT Discovery:** SNMP/LLDP ile OT topolojisi haritalama ve SIEM entegrasyonu
-- **SQLMap Elite:** SQL injection analizi, tamper, evasion ve bypass teknikleri
+| Modül | Kapsam | Öne Çıkanlar |
+| --- | --- | --- |
+| **Industrial Recon** | Endüstriyel ağ pasif izleme, pcap analizi | Protokol/parça analizi, cihaz tanıma, uyarı üretimi |
+| **Noxım Web Scanner** | Web uygulama zafiyet analizi | AI tabanlı payload önerisi, WAF bypass, davranışsal analiz |
+| **VaruxCtl Pentest** | Otomatik saldırı simülasyonu | Keşif → exploit → rapor zinciri, zamanlanmış görevler |
+| **OT Discovery** | OT topolojisi haritalama | SNMP/LLDP tabanlı keşif, SIEM entegrasyonu | 
+| **SQLMap Elite Wrapper** | SQL injection analizi | Tamper & evasion otomasyonu, log/rapor çıktısı |
+| **AI Kod Asistanı** | Kod/görev otomasyonu | OpenAI tabanlı öneri, komut dizisi üretimi |
+
+---
+
+## ⚙️ Konfigürasyon İpuçları
+- `.env` veya ortam değişkenleri ile API anahtarlarını ve hassas değerleri saklayın.
+- Ağ taramalarında **önce pasif mod** ile başlayıp kısıtlı hedef listesi kullanın.
+- Dashboard çıktılarının paylaşımı için `assets/` altına özel logolar veya rapor şablonları ekleyebilirsiniz.
 
 ---
 
@@ -146,5 +188,3 @@ Bu proje [MIT Lisansı](LICENSE) ile serbestçe kullanılabilir ve dağıtılabi
 <p align="center"><b>Geliştirici: VARUX Security Team ❤️</b></p>
 
 ![VARUX ATLAS ENGİNE](https://github.com/user-attachments/assets/b53e6791-b164-4034-8cc4-5a178eb4be34)
-
-
