@@ -3,10 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Dict
 
-import yaml
+try:
+    import yaml  # type: ignore
+
+    YAML_AVAILABLE = True
+except ImportError:  # pragma: no cover - ortamlara bağlı
+    yaml = None  # type: ignore
+    YAML_AVAILABLE = False
 
 
 def ensure_directory(path: Path) -> Path:
@@ -17,17 +25,31 @@ def ensure_directory(path: Path) -> Path:
 
 
 def load_yaml(path: Path) -> Dict[str, Any]:
-    """Load a YAML file returning an empty dict on failure."""
+    """Load a YAML file returning an empty dict on failure.
+
+    The helper is deliberately tolerant: malformed or missing files
+    should not crash the caller, so errors are logged and an empty
+    dictionary is returned instead.
+    """
+
+    if not YAML_AVAILABLE:
+        raise ImportError("PyYAML yüklü değil; load_yaml kullanılamaz.")
 
     try:
         with path.open("r", encoding="utf-8") as handle:
             return yaml.safe_load(handle) or {}
     except FileNotFoundError:
         return {}
+    except (YAMLError, OSError, JSONDecodeError) as exc:
+        logger.warning("Failed to parse YAML %s: %s", path, exc)
+        return {}
 
 
 def save_yaml(path: Path, data: Dict[str, Any]) -> None:
     """Persist ``data`` to ``path`` using safe YAML dumping."""
+
+    if not YAML_AVAILABLE:
+        raise ImportError("PyYAML yüklü değil; save_yaml kullanılamaz.")
 
     ensure_directory(path.parent)
     with path.open("w", encoding="utf-8") as handle:
@@ -42,6 +64,9 @@ def load_json(path: Path) -> Dict[str, Any]:
             return json.load(handle)
     except FileNotFoundError:
         return {}
+    except (JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to parse JSON %s: %s", path, exc)
+        return {}
 
 
 def save_json(path: Path, data: Dict[str, Any]) -> None:
@@ -53,9 +78,22 @@ def save_json(path: Path, data: Dict[str, Any]) -> None:
 
 
 def hash_file(path: Path, algorithm: str = "sha256") -> str:
-    """Return a hex digest for the provided file path."""
+    """Return a hex digest for ``path`` using the requested ``algorithm``.
 
-    hasher = hashlib.new(algorithm)
+    A clear ``FileNotFoundError`` is raised when the file does not exist and
+    ``ValueError`` is propagated for unsupported algorithms. The helper uses a
+    streamed read (8KiB chunks) to keep memory usage predictable even on large
+    artifacts.
+    """
+
+    if not path.exists():
+        raise FileNotFoundError(f"Dosya bulunamadı: {path}")
+
+    try:
+        hasher = hashlib.new(algorithm)
+    except ValueError as exc:
+        raise ValueError(f"Desteklenmeyen özet algoritması: {algorithm}") from exc
+
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8192), b""):
             hasher.update(chunk)
