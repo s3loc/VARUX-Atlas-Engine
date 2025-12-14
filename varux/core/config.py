@@ -8,12 +8,12 @@ with dot-notation keys.
 """
 from __future__ import annotations
 
-import json
+import os
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
+from .utils import load_json, load_yaml, save_json, save_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +21,15 @@ logger = logging.getLogger(__name__)
 class ConfigManager:
     """Load and persist configuration files with sane defaults."""
 
+    ENV_CONFIG_PATH = "VARUX_CONFIG_PATH"
+
     def __init__(self, config_path: Optional[Path | str] = None):
-        self.config_path: Path = (
-            Path(config_path).expanduser()
-            if config_path
-            else Path.home() / ".varux" / "config.yaml"
-        )
+        env_path = os.getenv(self.ENV_CONFIG_PATH)
+        self.config_path: Path = Path(
+            config_path
+            or env_path
+            or (Path.home() / ".varux" / "config.yaml")
+        ).expanduser()
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config: Dict[str, Any] = {}
         self.reset_to_defaults()
@@ -82,12 +85,11 @@ class ConfigManager:
             return
 
         try:
-            with self.config_path.open("r", encoding="utf-8") as handle:
-                file_config = (
-                    yaml.safe_load(handle)
-                    if self.config_path.suffix.lower() in {".yaml", ".yml"}
-                    else json.load(handle)
-                )
+            file_config = (
+                load_yaml(self.config_path)
+                if self.config_path.suffix.lower() in {".yaml", ".yml"}
+                else load_json(self.config_path)
+            )
             if isinstance(file_config, dict):
                 self._deep_merge(self.config, file_config)
                 logger.info("Configuration loaded from %s", self.config_path)
@@ -102,11 +104,9 @@ class ConfigManager:
 
         try:
             if self.config_path.suffix.lower() in {".yaml", ".yml"}:
-                with self.config_path.open("w", encoding="utf-8") as handle:
-                    yaml.safe_dump(self.config, handle, default_flow_style=False, indent=2)
+                save_yaml(self.config_path, self.config)
             else:
-                with self.config_path.open("w", encoding="utf-8") as handle:
-                    json.dump(self.config, handle, indent=2)
+                save_json(self.config_path, self.config)
             self.config_path.chmod(0o600)
             logger.info("Configuration saved to %s", self.config_path)
             return True
