@@ -118,6 +118,22 @@ python varux.py
 ```
 Menü üzerinden istediğiniz modülü seçip çalıştırabilirsiniz.
 
+#### Doğrudan Komut Satırı ile Otomasyon
+Etkileşimli menüye girmeden spesifik modülleri çalıştırabilirsiniz:
+```bash
+# Tüm modülleri listele
+python varux.py --list
+
+# SQLMap Wrapper ile hedef URL taraması
+python varux.py --module sqlmap_wrapper --target "http://site.com/vuln.php?id=1"
+
+# AI asistanından yanıt al (isteğe bağlı bağlam dosyası ve notlar)
+python varux.py --module ai_assistant --prompt "Modbus ağını sertleştirme adımları" \
+  --context ./examples/context.json --notes "Üretim hattı A için"
+```
+> `--module` parametresi seçildiğinde ilgili modül doğrudan çalışır; eksik
+> zorunlu argümanlarda anlamlı uyarılar verilir.
+
 ### Web Dashboard
 ```bash
 python dashboard.py

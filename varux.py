@@ -8,6 +8,7 @@ Tek dosya ile tüm modülleri çalıştırır.
 
 import os
 import sys
+import argparse
 import asyncio
 import importlib.util
 from pathlib import Path
@@ -40,8 +41,49 @@ LOGO = f"""
 {Fore.RED}  ╚██╔╝  {Fore.YELLOW}██╔══██║{Fore.CYAN}██╔══██╗{Fore.GREEN}██║   ██║ ██╔██╗ 
 {Fore.RED}   ██║   {Fore.YELLOW}██║  ██║{Fore.CYAN}██║  ██║{Fore.GREEN}╚██████╔╝██╔╝ ██╗
 {Fore.RED}   ╚═╝   {Fore.YELLOW}╚═╝  ╚═╝{Fore.CYAN}╚═╝  ╚═╝ {Fore.GREEN}╚═════╝ ╚═╝  ╚═╝
-{Fore.WHITE}{Style.BRIGHT}           ELITE EDITION v1.0 - 2025
+   {Fore.WHITE}{Style.BRIGHT}           ELITE EDITION v1.0 - 2025
 """
+
+MODULES = {
+    "industrial_recon": {
+        "file": "industrial_recon.py",
+        "function": "main",
+        "async": False,
+        "description": "Endüstriyel ağ pasif/aktif keşif",
+    },
+    "noxım": {
+        "file": "noxım.py",
+        "function": "main",
+        "async": False,
+        "description": "Web ve SQLi odaklı tarama",
+    },
+    "varuxctl": {
+        "file": "varuxctl.py",
+        "function": "main",
+        "async": True,
+        "description": "Tam otomatik saldırı simülasyonu",
+    },
+    "ot_discovery": {
+        "file": "VARUX OT Discovery Framework.py",
+        "function": "main_enhanced",
+        "async": True,
+        "description": "ICS/SCADA topoloji ve varlık keşfi",
+    },
+    "sqlmap_wrapper": {
+        "file": "sqlmap_wrapper.py",
+        "function": "run_advanced_scan",
+        "async": False,
+        "description": "SQLMap elit sarmalayıcı ile otomatik zafiyet analizi",
+        "class": "SQLMapWrapper",
+    },
+    "ai_assistant": {
+        "file": "ai_assistant.py",
+        "function": "generate_assistance",
+        "async": False,
+        "description": "OpenAI destekli güvenlik/kod asistanı",
+        "class": "AIAssistant",
+    },
+}
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -67,6 +109,118 @@ def load_module(module_path):
     sys.modules[module_path.stem.replace(" ", "_")] = module
     spec.loader.exec_module(module)
     return module
+
+def parse_cli_args():
+    parser = argparse.ArgumentParser(
+        description="VARUX Atlas Engine - etkileşimli veya doğrudan modül çalıştırma",
+    )
+    parser.add_argument(
+        "--module",
+        choices=MODULES.keys(),
+        help="Menüye girmeden belirli bir modülü hemen çalıştır",
+    )
+    parser.add_argument(
+        "--target",
+        help="Modülün ihtiyaç duyduğu hedef (örn. URL veya IP aralığı)",
+    )
+    parser.add_argument(
+        "--prompt",
+        help="AI asistanı için kullanıcı talebi",
+    )
+    parser.add_argument(
+        "--context",
+        type=Path,
+        help="AI asistanı için JSON formatında bağlam dosyası",
+    )
+    parser.add_argument(
+        "--notes",
+        help="AI asistanına ek not/özet ilet",
+    )
+    parser.add_argument(
+        "--api-key",
+        help="AI asistanı için geçici OpenAI API anahtarı",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Tüm modülleri ve kısa açıklamalarını listele",
+    )
+    return parser.parse_args()
+
+def _load_ai_context(path: Path):
+    import json
+
+    try:
+        with path.expanduser().open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            if not isinstance(data, dict):
+                raise ValueError("JSON kökü bir sözlük olmalı")
+            return data
+    except Exception as exc:
+        print(f"{Fore.RED}Bağlam dosyası okunamadı: {exc}")
+        return None
+
+def run_direct_module(args):
+    module_key = args.module
+    module_info = MODULES[module_key]
+    module_path = VARUX_DIR / module_info["file"]
+
+    try:
+        module = load_module(module_path)
+    except Exception as exc:
+        print(f"{Fore.RED}Modül yüklenemedi ({module_key}): {exc}")
+        return 1
+
+    # SQLMap sarmalayıcısı için hedef kontrolü
+    if module_key == "sqlmap_wrapper":
+        target = args.target
+        if not target:
+            print(f"{Fore.RED}SQLMap Wrapper doğrudan çalıştırmada --target zorunlu.")
+            return 2
+        wrapper = getattr(module, module_info["class"])()
+        if not wrapper.available():
+            print(f"{Fore.RED}SQLMap bulunamadı veya PATH içinde değil.")
+            return 3
+        wrapper.run_advanced_scan(target)
+        return 0
+
+    # AI asistanı için prompt ve bağlam doğrulaması
+    if module_key == "ai_assistant":
+        prompt = args.prompt
+        if not prompt:
+            print(f"{Fore.RED}AI asistanı için --prompt parametresi zorunlu.")
+            return 4
+
+        context = _load_ai_context(args.context) if args.context else None
+        if context is None and args.context:
+            return 5
+
+        AssistantClass = getattr(module, module_info["class"])
+        assistant = AssistantClass(api_key=args.api_key)
+        if not assistant.available():
+            print(f"{Fore.RED}OpenAI API anahtarı bulunamadı veya geçersiz.")
+            return 6
+        context = context or {}
+        if args.notes:
+            context["notes"] = args.notes
+        result = assistant.generate_assistance(prompt, context)
+        if result.get("error"):
+            print(f"{Fore.RED}Asistan hatası: {result['error']}")
+            return 7
+        print(f"{Fore.GREEN}{result.get('assistant_response')}")
+        return 0
+
+    # Standart modül çağrıları
+    run_func = getattr(module, module_info["function"], None)
+    if run_func is None:
+        print(f"{Fore.RED}Modülde beklenen fonksiyon yok: {module_info['function']}")
+        return 8
+
+    if module_info["async"]:
+        asyncio.run(run_func())
+    else:
+        run_func()
+    return 0
 
 def main_menu():
     while True:
@@ -180,6 +334,17 @@ def main_menu():
 
 
 if __name__ == "__main__":
+    args = parse_cli_args()
+
+    if args.list:
+        print(f"{Fore.CYAN}VARUX Atlas Engine modülleri:\n")
+        for key, info in MODULES.items():
+            print(f" - {key} -> {info['description']} ({info['file']})")
+        sys.exit(0)
+
+    if args.module:
+        sys.exit(run_direct_module(args))
+
     try:
         main_menu()
     except KeyboardInterrupt:
