@@ -27,28 +27,28 @@
 ```mermaid
 flowchart TD
     subgraph UI["Kullanıcı Arayüzü"]
-        A1[Web Dashboard (Dash)]
-        A2[CLI Terminal (varux.py)]
+        A1["Web Dashboard (Dash)"]
+        A2["CLI Terminal (varux.py)"]
     end
 
     subgraph ORC["Orchestrator & Yönetim"]
-        B1[Atlas Orchestrator]
-        B2[Görev Kuyruğu / Paralel Çalıştırıcı]
+        B1["Atlas Orchestrator"]
+        B2["Görev Kuyruğu / Paralel Çalıştırıcı"]
     end
 
     subgraph MOD["Güvenlik Modülleri"]
-        M1[Industrial Recon]
-        M2[Noxım Web Scanner]
-        M3[VaruxCtl Pentest]
-        M4[OT Discovery]
-        M5[SQLMap Elite Wrapper]
-        M6[AI Kod Asistanı]
+        M1["Industrial Recon"]
+        M2["Noxım Web Scanner"]
+        M3["VaruxCtl Pentest"]
+        M4["OT Discovery"]
+        M5["SQLMap Elite Wrapper"]
+        M6["AI Kod Asistanı"]
     end
 
     subgraph DATA["Veri Katmanı & Raporlama"]
-        DB[(SQLite / JSON Kayıtları)]
-        RP[Raporlama & Görselleştirme]
-        LG[Log / Audit Trail]
+        DB[("SQLite / JSON Kayıtları")]
+        RP["Raporlama & Görselleştirme"]
+        LG["Log / Audit Trail"]
     end
 
     A1 --> B1
