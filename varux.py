@@ -68,6 +68,19 @@ def load_module(module_path):
     spec.loader.exec_module(module)
     return module
 
+
+def run_health_check():
+    """Çekirdek bağımlılık ve ortam kontrollerini çalıştır."""
+
+    try:
+        from varux.core.diagnostics import run_diagnostics
+
+        diagnostics_paths = [VARUX_DIR / "requirements.txt", Path.home() / ".varux"]
+        report = run_diagnostics(paths=diagnostics_paths)
+        print(report.format_as_table())
+    except Exception as exc:  # pragma: no cover - sadece CLI çıktısı
+        print(f"{Fore.RED}Tanılama çalıştırılamadı: {exc}")
+
 def main_menu():
     while True:
         clear_screen()
@@ -81,6 +94,7 @@ def main_menu():
         print(f"{Fore.YELLOW}[4]{Fore.WHITE} ICS/SCADA Derin Keşif (VARUX OT Discovery Framework)")
         print(f"{Fore.YELLOW}[5]{Fore.WHITE} SQLMap Elite Wrapper (sqlmap_wrapper)         ")
         print(f"{Fore.YELLOW}[6]{Fore.WHITE} AI Kod Asistanı (OpenAI)                       ")
+        print(f"{Fore.YELLOW}[D]{Fore.WHITE} Sistem Sağlık Kontrolü                          ")
         print(f"{Fore.YELLOW}[7]{Fore.WHITE} Çıkış                                         \n")
 
         secim = input(f"{Fore.CYAN}Seçiminiz (1-7): {Fore.WHITE}").strip()
@@ -166,6 +180,9 @@ def main_menu():
                     print(f"{Fore.YELLOW}Modül yüklendi ama 'AIAssistant' sınıfı yok.")
             except Exception as e:
                 print(f"{Fore.RED}ai_assistant hatası: {e}")
+
+        elif secim.lower() == "d":
+            run_health_check()
 
         elif secim == "7":
             clear_screen()
