@@ -181,7 +181,11 @@ def run_direct_module(args):
         if not wrapper.available():
             print(f"{Fore.RED}SQLMap bulunamadı veya PATH içinde değil.")
             return 3
-        wrapper.run_advanced_scan(target)
+        result = wrapper.run_advanced_scan(target)
+        if not result.get("ok"):
+            error_msg = result.get("error", "Bilinmeyen hata")
+            print(f"{Fore.RED}SQLMap Wrapper hatası: {error_msg}")
+            return 4
         return 0
 
     # AI asistanı için prompt ve bağlam doğrulaması
