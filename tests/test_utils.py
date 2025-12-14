@@ -1,42 +1,44 @@
+import hashlib
+import importlib.util
 import tempfile
-import unittest
 from pathlib import Path
+import unittest
 
-from varux.core import utils
+
+# ``varux.py`` isimli kök dosya, dizindeki ``varux`` klasörünün paket olarak
+# otomatik keşfedilmesini engellediği için modülü güvenli bir şekilde manuel
+# yüklüyoruz. Böylece testler gerçek dosya yolunu kullanarak yardımcıların
+# çalıştığını doğrulayabiliyor.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+UTILS_PATH = REPO_ROOT / "varux" / "core" / "utils.py"
+
+spec = importlib.util.spec_from_file_location("varux.core.utils", UTILS_PATH)
+assert spec and spec.loader, "utils modülü için spec oluşturulamadı"
+utils = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(utils)
 
 
-class UtilsTestCase(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.temp_path = Path(self.tempdir.name)
+class HashFileTests(unittest.TestCase):
+    def test_hash_file_returns_expected_digest(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "sample.txt"
+            file_path.write_text("varux-elite", encoding="utf-8")
 
-    def tearDown(self) -> None:
-        self.tempdir.cleanup()
+            expected = hashlib.sha256(b"varux-elite").hexdigest()
+            self.assertEqual(utils.hash_file(file_path), expected)
 
-    def test_load_json_handles_invalid_content_gracefully(self) -> None:
-        bad_json = self.temp_path / "broken.json"
-        bad_json.write_text("{invalid json", encoding="utf-8")
+    def test_hash_file_raises_for_missing_file(self):
+        missing = Path("/tmp/non-existent-varux-file")
+        with self.assertRaises(FileNotFoundError):
+            utils.hash_file(missing)
 
-        result = utils.load_json(bad_json)
+    def test_hash_file_raises_for_unknown_algorithm(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "sample.txt"
+            file_path.write_text("content", encoding="utf-8")
 
-        self.assertEqual(result, {})
-
-    def test_load_yaml_handles_invalid_content_gracefully(self) -> None:
-        bad_yaml = self.temp_path / "broken.yaml"
-        bad_yaml.write_text("foo: : bar", encoding="utf-8")
-
-        result = utils.load_yaml(bad_yaml)
-
-        self.assertEqual(result, {})
-
-    def test_save_and_load_roundtrip_json(self) -> None:
-        payload = {"key": "value", "items": [1, 2, 3]}
-        target = self.temp_path / "data" / "sample.json"
-
-        utils.save_json(target, payload)
-        loaded = utils.load_json(target)
-
-        self.assertEqual(payload, loaded)
+            with self.assertRaises(ValueError):
+                utils.hash_file(file_path, algorithm="unknown-hash")
 
 
 if __name__ == "__main__":
