@@ -33,6 +33,8 @@ except ImportError:
     class Fore: RED = YELLOW = GREEN = CYAN = MAGENTA = WHITE = ""
     class Style: BRIGHT = RESET_ALL = ""
 
+from varux.core.compliance import TERMS_NOTICE, TermsManager
+
 # ==========================================
 # ASCII LOGO (isteğe bağlı, çok havalı duruyor)
 # ==========================================

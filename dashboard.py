@@ -353,6 +353,28 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS terms_compliance (
+                user_id INTEGER UNIQUE,
+                accepted BOOLEAN DEFAULT 0,
+                mode TEXT DEFAULT 'passive',
+                accepted_at TIMESTAMP,
+                last_prompt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                event_type TEXT,
+                details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
         
         # Varsayılan admin kullanıcı
         admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
@@ -369,6 +391,88 @@ def init_database():
 
 # Veritabanını başlat
 init_database()
+
+
+def log_audit_event(user_id, event_type, details):
+    try:
+        conn = sqlite3.connect('varux_enterprise.db', check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO audit_events (user_id, event_type, details) VALUES (?, ?, ?)''',
+            (user_id, event_type, details)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Audit log yazılamadı: {e}")
+
+
+def get_terms_status(username):
+    """Return persisted consent status for the given user."""
+
+    try:
+        conn = sqlite3.connect('varux_enterprise.db', check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return {'accepted': False, 'mode': 'passive'}
+
+        user_id = user[0]
+        cursor.execute(
+            'SELECT accepted, mode, accepted_at FROM terms_compliance WHERE user_id = ?',
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                '''INSERT INTO terms_compliance (user_id, accepted, mode) VALUES (?, 0, 'passive')''',
+                (user_id,)
+            )
+            conn.commit()
+            row = (0, 'passive', None)
+
+        conn.close()
+        return {'accepted': bool(row[0]), 'mode': row[1], 'accepted_at': row[2], 'user_id': user_id}
+    except Exception as e:
+        print(f"Onay durumu okunamadı: {e}")
+        return {'accepted': False, 'mode': 'passive'}
+
+
+def set_terms_status(username, accepted, mode):
+    try:
+        conn = sqlite3.connect('varux_enterprise.db', check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        if not user:
+            conn.close()
+            return {'accepted': False, 'mode': 'passive'}
+
+        user_id = user[0]
+        accepted_at_value = datetime.utcnow().isoformat() if accepted else None
+        cursor.execute(
+            '''INSERT INTO terms_compliance (user_id, accepted, mode, accepted_at, last_prompt)
+               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   accepted=excluded.accepted,
+                   mode=excluded.mode,
+                   accepted_at=excluded.accepted_at,
+                   last_prompt=CURRENT_TIMESTAMP''',
+            (user_id, int(accepted), mode, accepted_at_value)
+        )
+        conn.commit()
+        conn.close()
+
+        event_type = 'terms_accepted' if accepted else 'terms_declined'
+        log_audit_event(user_id, event_type, f"mode={mode}")
+        return {'accepted': accepted, 'mode': mode, 'user_id': user_id, 'accepted_at': accepted_at_value}
+    except Exception as e:
+        print(f"Onay kaydedilemedi: {e}")
+        return {'accepted': False, 'mode': 'passive'}
 
 # ====================== E-POSTA SERVİSİ ======================
 class EmailService:
@@ -641,6 +745,7 @@ orchestrator = AdvancedModuleOrchestrator()
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='user-store', data=None),
+    dcc.Store(id='compliance-status', data={'accepted': False, 'mode': 'passive'}),
     dcc.Store(id='scan-data-store'),
     dcc.Store(id='active-scan-id', data=None),
     
@@ -711,6 +816,32 @@ login_layout = dbc.Container([
 # ====================== ANA DASHBOARD ======================
 def create_dashboard_layout():
     return html.Div([
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Kullanım Şartları ve Pasif Tarama Uyarısı")),
+            dbc.ModalBody([
+                html.P("Platform varsayılan olarak pasif modda çalışır. Aktif taramalar operasyona etkide bulunabilir ve yalnızca yetkili onaylarla yürütülmelidir.",
+                       style={'fontSize': '0.95rem'}),
+                html.Ul([
+                    html.Li("Yetkisiz hedeflerde kullanım yasaktır."),
+                    html.Li("Pasif modda kalmak önerilir; aktif moda geçiş için ek onay gerekir."),
+                    html.Li("Reddetmeniz halinde modüller çalıştırılamaz ve olay audit kaydına yazılır."),
+                ], style={'fontSize': '0.9rem'}),
+                dbc.RadioItems(
+                    id='compliance-mode',
+                    options=[
+                        {'label': 'Pasif Mod (varsayılan)', 'value': 'passive'},
+                        {'label': 'Aktif Modlara da izin ver', 'value': 'active'},
+                    ],
+                    value='passive',
+                    className='mb-3'
+                ),
+                html.Div(id='terms-alert')
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Reddediyorum", id='decline-terms-button', color='secondary', className='me-2'),
+                dbc.Button("Kabul Ediyorum", id='accept-terms-button', color='success'),
+            ]),
+        ], id='terms-modal', is_open=False, backdrop='static', keyboard=False),
         # Üst Navigasyon
         dbc.Navbar([
             dbc.Container([
@@ -1347,7 +1478,7 @@ def create_settings_layout():
 def display_page(pathname, user_data):
     if not user_data:
         return login_layout
-    
+
     if pathname == '/api':
         return create_api_layout()
     elif pathname == '/settings':
@@ -1355,9 +1486,59 @@ def display_page(pathname, user_data):
     else:
         return create_dashboard_layout()
 
+
+@app.callback(
+    [Output('terms-modal', 'is_open'),
+     Output('compliance-status', 'data', allow_duplicate=True),
+     Output('terms-alert', 'children'),
+     Output('user-store', 'data', allow_duplicate=True)],
+    [Input('user-store', 'data'),
+     Input('compliance-status', 'data'),
+     Input('accept-terms-button', 'n_clicks'),
+     Input('decline-terms-button', 'n_clicks')],
+    [State('compliance-mode', 'value'),
+     State('user-store', 'data')],
+    prevent_initial_call=True
+)
+def handle_terms_modal(user_data_input, compliance, accept_clicks, decline_clicks, selected_mode, user_data_state):
+    trigger = callback_context.triggered[0]['prop_id'].split('.')[0] if callback_context.triggered else None
+    compliance_state = compliance or {'accepted': False, 'mode': 'passive'}
+    user_context = user_data_state or user_data_input
+
+    if trigger in {'user-store', 'compliance-status'}:
+        if not user_context:
+            return False, compliance_state, dash.no_update, dash.no_update
+        return not compliance_state.get('accepted', False), compliance_state, dash.no_update, dash.no_update
+
+    if not user_context:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    if trigger == 'accept-terms-button':
+        updated = set_terms_status(user_context['username'], True, selected_mode or 'passive')
+        user_context.update({'terms_accepted': True, 'scan_mode': updated.get('mode', 'passive')})
+        success_alert = dbc.Alert(
+            "Onay kaydedildi. Varsayılan pasif mod aktif, seçilen mod: {}.".format(updated.get('mode', 'passive')),
+            color="success",
+            style={'fontSize': '0.9rem'}
+        )
+        return False, updated, success_alert, user_context
+
+    if trigger == 'decline-terms-button':
+        updated = set_terms_status(user_context['username'], False, selected_mode or 'passive')
+        user_context.update({'terms_accepted': False, 'scan_mode': updated.get('mode', 'passive')})
+        warning_alert = dbc.Alert(
+            "Reddettiniz. Modüller çalıştırılamaz; audit kaydı oluşturuldu.",
+            color="warning",
+            style={'fontSize': '0.9rem'}
+        )
+        return True, updated, warning_alert, user_context
+
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
 # Giriş kontrolü
 @app.callback(
     [Output('user-store', 'data'),
+     Output('compliance-status', 'data'),
      Output('url', 'pathname'),
      Output('login-alert', 'children')],
     [Input('login-button', 'n_clicks')],
@@ -1366,10 +1547,10 @@ def display_page(pathname, user_data):
 )
 def login_user(n_clicks, username, password):
     if n_clicks is None or n_clicks == 0:
-        return dash.no_update, dash.no_update, ""
-    
+        return dash.no_update, dash.no_update, dash.no_update, ""
+
     if not username or not password:
-        return dash.no_update, dash.no_update, dbc.Alert("Kullanıcı adı ve şifre gereklidir!", color="danger", style={'fontSize': '0.9rem'})
+        return dash.no_update, dash.no_update, dash.no_update, dbc.Alert("Kullanıcı adı ve şifre gereklidir!", color="danger", style={'fontSize': '0.9rem'})
     
     try:
         # Şifreyi hash'le ve kontrol et
@@ -1391,7 +1572,12 @@ def login_user(n_clicks, username, password):
                 'email_notifications': user[4]
             }
             LIVE_DATA['current_user'] = user_data
-            
+
+            terms = get_terms_status(username)
+            user_data['terms_accepted'] = terms.get('accepted', False)
+            user_data['scan_mode'] = terms.get('mode', 'passive')
+            user_data['user_id'] = terms.get('user_id')
+
             # Tarama geçmişini yükle
             conn = sqlite3.connect('varux_enterprise.db', check_same_thread=False)
             cursor = conn.cursor()
@@ -1406,13 +1592,13 @@ def login_user(n_clicks, username, password):
             
             if last_scan:
                 LIVE_DATA['last_update'] = datetime.strptime(last_scan[2], '%Y-%m-%d %H:%M:%S')
-            
-            return user_data, '/', ""
+
+            return user_data, terms, '/', ""
         else:
-            return dash.no_update, dash.no_update, dbc.Alert("Geçersiz kullanıcı adı veya şifre!", color="danger", style={'fontSize': '0.9rem'})
+            return dash.no_update, dash.no_update, dash.no_update, dbc.Alert("Geçersiz kullanıcı adı veya şifre!", color="danger", style={'fontSize': '0.9rem'})
     except Exception as e:
         print(f"Giriş hatası: {e}")
-        return dash.no_update, dash.no_update, dbc.Alert(f"Sistem hatası: {e}", color="danger", style={'fontSize': '0.9rem'})
+        return dash.no_update, dash.no_update, dash.no_update, dbc.Alert(f"Sistem hatası: {e}", color="danger", style={'fontSize': '0.9rem'})
 
 # Çıkış işlemi
 @app.callback(
@@ -1627,9 +1813,13 @@ def update_dashboard(n):
 def start_orchestrated_scan(n_clicks, scan_type, target, email, user_data):
     if n_clicks is None or n_clicks == 0:
         return "", dash.no_update
-    
+
     if not scan_type or not target:
         return dbc.Alert("Lütfen tarama türü ve hedef belirleyin!", color="warning", style={'fontSize': '0.85rem'}), dash.no_update
+
+    if not user_data or not user_data.get('terms_accepted'):
+        log_audit_event(user_data.get('user_id') if user_data else None, 'blocked_execution', 'terms_not_accepted')
+        return dbc.Alert("Kullanım şartları onaylanmadan tarama başlatılamaz.", color="warning", style={'fontSize': '0.85rem'}), dash.no_update
     
     # E-posta adresini kontrol et veya kullanıcının e-posta adresini kullan
     notification_email = email or user_data.get('email')
@@ -1702,6 +1892,10 @@ def run_ai_assistant(n_clicks, prompt, target, user_data):
 
     if not prompt:
         return dbc.Alert("Lütfen asistan için bir istek veya soru girin.", color="warning", style={'fontSize': '0.85rem'})
+
+    if not user_data or not user_data.get('terms_accepted'):
+        log_audit_event(user_data.get('user_id') if user_data else None, 'blocked_execution', 'assistant_terms_not_accepted')
+        return dbc.Alert("Kullanım şartları onaylanmadan asistan çağrılamaz.", color="warning", style={'fontSize': '0.85rem'})
 
     context = {
         'target': target,
@@ -1875,10 +2069,15 @@ def api_start_scan():
     data = request.get_json()
     scan_type = data.get('scan_type')
     target = data.get('target')
-    
+
     if not scan_type or not target:
         return jsonify({'error': 'scan_type ve target gereklidir'}), 400
-    
+
+    terms = get_terms_status(user[0])
+    if not terms.get('accepted'):
+        log_audit_event(terms.get('user_id'), 'blocked_execution', 'api_terms_not_accepted')
+        return jsonify({'error': 'Kullanım şartları onaylanmadan tarama başlatılamaz'}), 403
+
     # Kullanıcı verisini oluştur
     user_data = {
         'username': user[0],

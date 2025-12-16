@@ -70,6 +70,11 @@ class ConfigManager:
                 "throttle_delay": 0.1,
             },
             "storage": {"output_dir": str(Path.home() / "varux_outputs")},
+            "compliance": {
+                "terms_accepted": False,
+                "mode": "passive",
+                "accepted_at": None,
+            },
         }
 
     def reset_to_defaults(self) -> None:
