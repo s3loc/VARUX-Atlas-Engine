@@ -10,11 +10,15 @@ from typing import Any, Dict
 
 try:
     import yaml  # type: ignore
+    from yaml import YAMLError  # type: ignore
 
     YAML_AVAILABLE = True
 except ImportError:  # pragma: no cover - ortamlara bağlı
     yaml = None  # type: ignore
+    YAMLError = Exception  # type: ignore
     YAML_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_directory(path: Path) -> Path:

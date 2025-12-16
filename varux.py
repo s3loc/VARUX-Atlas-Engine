@@ -31,6 +31,8 @@ except ImportError:
     class Fore: RED = YELLOW = GREEN = CYAN = MAGENTA = WHITE = ""
     class Style: BRIGHT = RESET_ALL = ""
 
+from varux.core.compliance import TERMS_NOTICE, TermsManager
+
 # ==========================================
 # ASCII LOGO (isteğe bağlı, çok havalı duruyor)
 # ==========================================
@@ -84,6 +86,38 @@ MODULES = {
         "class": "AIAssistant",
     },
 }
+
+TERMS_MANAGER = TermsManager(source="cli")
+
+
+def enforce_terms() -> bool:
+    """Require terms acceptance before running any module."""
+
+    status = TERMS_MANAGER.get_status()
+    if status.get("accepted"):
+        return True
+
+    clear_screen()
+    print(f"{Fore.YELLOW}{TERMS_NOTICE}\n")
+    decision = input(f"{Fore.CYAN}Kullanım şartlarını kabul ediyor musunuz? (E/h): {Fore.WHITE}").strip().lower()
+
+    if decision not in {"e", "evet", "y", "yes"}:
+        TERMS_MANAGER.record_decision(False, status.get("mode", "passive"))
+        print(f"\n{Fore.RED}Onay verilmedi. Modüller çalıştırılamaz ve işlem audit kaydına işlendi.")
+        return False
+
+    mode_choice = input(
+        f"{Fore.CYAN}Aktif tarama modlarını da etkinleştirmek istiyor musunuz? "
+        f"[varsayılan: pasif]: {Fore.WHITE}"
+    ).strip().lower()
+    mode = "active" if mode_choice in {"e", "evet", "y", "yes", "a", "aktif", "active"} else "passive"
+    TERMS_MANAGER.record_decision(True, mode)
+
+    print(
+        f"\n{Fore.GREEN}Onay alındı. Varsayılan pasif mod korunuyor;"
+        f" seçilen tarama modu: {mode}."
+    )
+    return True
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -347,7 +381,12 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.module:
+        if not enforce_terms():
+            sys.exit(10)
         sys.exit(run_direct_module(args))
+
+    if not enforce_terms():
+        sys.exit(10)
 
     try:
         main_menu()

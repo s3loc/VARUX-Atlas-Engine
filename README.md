@@ -172,6 +172,11 @@ python varux/sqlmap_wrapper.py     # SQLMap Elite Wrapper
 - Ağ taramalarında **önce pasif mod** ile başlayıp kısıtlı hedef listesi kullanın.
 - Dashboard çıktılarının paylaşımı için `assets/` altına özel logolar veya rapor şablonları ekleyebilirsiniz.
 
+## ✅ Kullanım Şartları ve Tarama Modları
+- CLI ve dashboard ilk açılışta pasif tarama uyarısı/kullanım şartları modalı gösterir; onay olmadan modüller çalıştırılamaz.
+- Varsayılan davranış **pasif moddur**. Aktif modlara geçiş için ek onay sorulur ve seçimler kalıcı olarak kaydedilir.
+- Onay/red kararları `~/.varux` altındaki config ve audit loglarında (dashboard için `varux_enterprise.db`) saklanır.
+
 ---
 
 ## 📸 Ekran Görüntüleri
