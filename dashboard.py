@@ -28,6 +28,8 @@ import asyncio
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from dotenv import find_dotenv, load_dotenv
+
 # DOĞRU OLANLAR
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -42,6 +44,33 @@ from openpyxl import Workbook
 import warnings
 
 warnings.filterwarnings("ignore")
+
+REQUIRED_ENV_VARS = [
+    "OPENAI_API_KEY",
+    "VARUX_DB_URL",
+    "VARUX_OAUTH_CLIENT_ID",
+    "VARUX_OAUTH_CLIENT_SECRET",
+    "VARUX_SESSION_SECRET",
+]
+
+
+def load_environment() -> None:
+    """Ensure dotenv values are loaded and required keys exist."""
+
+    env_file = find_dotenv(usecwd=True)
+    load_dotenv(env_file or None)
+
+    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing:
+        missing_keys = ", ".join(missing)
+        raise SystemExit(
+            "Zorunlu ortam değişkenleri eksik: "
+            f"{missing_keys}. Kök dizindeki .env dosyasını doldurun veya "
+            "sistem ortamına ekleyin. Örnek değerler için .env.example'a bakın."
+        )
+
+
+load_environment()
 
 # ====================== ORCHESTRATOR KONFİGÜRASYONU ======================
 # Modülleri dinamik olarak bulabilmek için çalışma dizinini kullanıyoruz.

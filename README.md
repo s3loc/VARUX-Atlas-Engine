@@ -172,6 +172,17 @@ python varux/sqlmap_wrapper.py     # SQLMap Elite Wrapper
 - Ağ taramalarında **önce pasif mod** ile başlayıp kısıtlı hedef listesi kullanın.
 - Dashboard çıktılarının paylaşımı için `assets/` altına özel logolar veya rapor şablonları ekleyebilirsiniz.
 
+## 🔐 Ortam Değişkenleri ve Gizli Yönetimi
+- Kök dizindeki `.env.example` dosyasını `.env` olarak kopyalayın ve `OPENAI_API_KEY`, `VARUX_DB_URL`, `VARUX_OAUTH_CLIENT_ID`, `VARUX_OAUTH_CLIENT_SECRET` ve `VARUX_SESSION_SECRET` gibi zorunlu alanları doldurun.
+- `varux.py` ve `dashboard.py` çalışırken `.env` dosyasını otomatik yükler; zorunlu değişkenler eksikse anlaşılır bir hata mesajı ile durur.
+- Üretimde gizli bilgileri `.env` yerine bir gizli yönetim sistemi (örn. HashiCorp Vault, AWS Secrets Manager) üzerinden enjekte edin ve `VARUX_CONFIG_PATH` ile konfigürasyon dosyalarını izole edin.
+
+### Production hardening ve secret rotasyonu
+- Açık anahtarları (OpenAI, OAuth istemcisi, veritabanı parolaları) en az üç ayda bir döndürün; yeni değerleri `.env` yerine bir gizli yönetim aracından çekin.
+- `VARUX_SESSION_SECRET` için yüksek entropili, en az 32 karakterlik bir değer üretin ve döndürme sırasında aktif oturumları geçersiz kılın.
+- Yetkisiz erişimi engellemek için dashboard arayüzünü sadece iç ağda yayınlayın, ters proxy üzerinden TLS ve IP kısıtlamaları uygulayın.
+- Veritabanı URL'sini salt-okunur rollerle sınırlayın ve güvenlik duvarında sadece uygulama sunucusunun erişimine izin verin.
+
 ---
 
 ## 📸 Ekran Görüntüleri
