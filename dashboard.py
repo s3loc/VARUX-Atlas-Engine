@@ -27,6 +27,8 @@ import sys
 import asyncio
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
+from varux.core.modules import MODULE_REGISTRY
 
 # DOĞRU OLANLAR
 from email.mime.text import MIMEText
@@ -63,48 +65,10 @@ sys.path.insert(0, str(VARUX_MODULE_DIR))
 # ====================== GELİŞMİŞ MODÜL YÖNETİCİSİ ======================
 class AdvancedModuleOrchestrator:
     def __init__(self):
-        self.modules = {
-            'ot_framework': {
-                'name': 'VARUX OT Discovery Framework',
-                'file': 'VARUX OT Discovery Framework.py',
-                'function': 'main_enhanced',
-                'async': True
-            },
-            'industrial_recon': {
-                'name': 'Industrial Network Reconnaissance',
-                'file': 'industrial_recon.py', 
-                'function': 'main',
-                'async': False
-            },
-            'noxim': {
-                'name': 'Web Application Security Scanner',
-                'file': 'noxım.py',
-                'function': 'main',
-                'async': False
-            },
-            'varuxctl': {
-                'name': 'Full Automated Penetration Test',
-                'file': 'varuxctl.py',
-                'function': 'main',
-                'async': True
-            },
-            'sqlmap_wrapper': {
-                'name': 'SQL Injection Advanced Scanner',
-                'file': 'sqlmap_wrapper.py',
-                'function': 'run_advanced_scan',
-                'async': False,
-                'class': 'SQLMapWrapper'
-            },
-            'ai_assistant': {
-                'name': 'OpenAI Kod Asistanı',
-                'file': 'ai_assistant.py',
-                'function': 'generate_assistance',
-                'async': False,
-                'class': 'AIAssistant'
-            }
-        }
+        self.modules = MODULE_REGISTRY
         self.executor = ThreadPoolExecutor(max_workers=10)
         self.active_scans = {}
+        self.api_url = os.getenv("VARUX_ORCH_URL", "http://127.0.0.1:5001")
         
     def load_module(self, module_path):
         """Güvenli modül yükleme"""
@@ -225,69 +189,25 @@ class AdvancedModuleOrchestrator:
             return {"error": str(e)}
 
     def analyze_target(self, scan_type, target, user_data):
-        """ORCHESTRATOR: Tüm modülleri koordine eden ana fonksiyon"""
-        scan_id = secrets.token_hex(16)
-        self.active_scans[scan_id] = {
-            'status': 'running',
-            'start_time': datetime.now(),
-            'scan_type': scan_type,
-            'target': target,
-            'user': user_data['username']
-        }
-        
-        def run_scan():
-            try:
-                print(f"🚀 Starting orchestrated scan: {scan_type} on {target}")
-                
-                module_info = self.modules.get(scan_type)
-                if not module_info:
-                    result = {"error": f"Unknown scan type: {scan_type}"}
-                else:
-                    # Modülü çalıştır
-                    if module_info['async']:
-                        # Asenkron modül için event loop oluştur
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            result = loop.run_until_complete(
-                                self.execute_async_module(module_info, target)
-                            )
-                        finally:
-                            loop.close()
-                    else:
-                        # Senkron modül
-                        result = self.execute_sync_module(module_info, target)
-                
-                # Çıktıyı normalleştir
-                normalized_result = self.normalize_output(result, scan_type, target)
-                
-                # Veritabanına kaydet
-                self.save_scan_result(user_data, scan_type, target, normalized_result)
-                
-                # Global veriyi güncelle
-                self.update_live_data(normalized_result)
-                
-                # Durumu güncelle
-                self.active_scans[scan_id]['status'] = 'completed'
-                self.active_scans[scan_id]['end_time'] = datetime.now()
-                self.active_scans[scan_id]['result'] = normalized_result
-                
-                # Kritik bulgu varsa bildirim gönder
-                if normalized_result.get('critical_findings', 0) > 0:
-                    self.send_critical_alert(user_data, normalized_result)
-                    
-                print(f"✅ Scan completed: {scan_type} - Found {normalized_result.get('total_devices', 0)} devices")
-                
-            except Exception as e:
-                print(f"❌ Orchestrator error: {e}")
-                self.active_scans[scan_id]['status'] = 'error'
-                self.active_scans[scan_id]['error'] = str(e)
+        """Orchestrator API üzerinden tarama başlat."""
 
-        # Taramayı thread'de başlat
-        thread = threading.Thread(target=run_scan, daemon=True)
-        thread.start()
-        
-        return scan_id
+        payload = {"module": scan_type, "payload": {"target": target}}
+        try:
+            response = requests.post(f"{self.api_url}/api/tasks", json=payload, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            scan_id = data.get("job_id")
+            self.active_scans[scan_id] = {
+                'status': 'PENDING',
+                'start_time': datetime.now(),
+                'scan_type': scan_type,
+                'target': target,
+                'user': user_data.get('username', 'dashboard'),
+            }
+            return scan_id
+        except Exception as exc:
+            print(f"❌ Orchestrator enqueue error: {exc}")
+            return None
 
     def save_scan_result(self, user_data, scan_type, target, result):
         """Tarama sonucunu veritabanına kaydet"""
@@ -347,7 +267,19 @@ class AdvancedModuleOrchestrator:
 
     def get_scan_status(self, scan_id):
         """Tarama durumunu getir"""
-        return self.active_scans.get(scan_id, {'status': 'unknown'})
+
+        if not scan_id:
+            return {'status': 'unknown'}
+
+        try:
+            response = requests.get(f"{self.api_url}/api/tasks/{scan_id}", timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            status = data.get('status', 'unknown').lower()
+            self.active_scans[scan_id] = data
+            return {'status': status, 'result': data.get('result'), 'meta': data.get('meta')}
+        except Exception as exc:
+            return {'status': 'error', 'error': str(exc)}
 
     def invoke_assistant(self, prompt, context=None):
         """OpenAI tabanlı kod asistanını çalıştır."""
@@ -1706,9 +1638,11 @@ def start_orchestrated_scan(n_clicks, scan_type, target, email, user_data):
     
     # Orchestrator ile taramayı başlat
     scan_id = orchestrator.analyze_target(scan_type, target, user_data)
-    
+    if not scan_id:
+        return dbc.Alert("Görev kuyruğa eklenemedi. Orchestrator API'yi kontrol edin.", color="danger", style={'fontSize': '0.85rem'}), dash.no_update
+
     module_info = orchestrator.modules.get(scan_type, {})
-    module_name = module_info.get('name', 'Bilinmeyen Modül')
+    module_name = module_info.get('description', 'Bilinmeyen Modül')
     
     alert = dbc.Alert(
         [
@@ -1737,21 +1671,22 @@ def update_scan_progress(n, scan_id):
     
     scan_status = orchestrator.get_scan_status(scan_id)
     status = scan_status.get('status', 'unknown')
-    
-    if status == 'running':
+
+    if status in {'pending', 'queued'}:
+        return dbc.Alert("⏳ Görev sırada bekliyor...", color="info", style={'fontSize': '0.85rem'})
+    if status in {'running', 'started'}:
         return dbc.Progress(
-            value=100, 
-            striped=True, 
-            animated=True, 
+            value=100,
+            striped=True,
+            animated=True,
             style={'height': '8px'},
             label="Tarama devam ediyor..."
         )
-    elif status == 'completed':
+    if status == 'success':
         return dbc.Alert("✅ Tarama tamamlandı!", color="success", style={'fontSize': '0.85rem'})
-    elif status == 'error':
+    if status == 'failed' or status == 'error':
         return dbc.Alert(f"❌ Tarama hatası: {scan_status.get('error', 'Bilinmeyen hata')}", color="danger", style={'fontSize': '0.85rem'})
-    else:
-        return ""
+    return ""
 
 # OpenAI asistan entegrasyonu
 @app.callback(
