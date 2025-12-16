@@ -9,14 +9,16 @@ Tek dosya ile tüm modülleri çalıştırır.
 import os
 import sys
 import argparse
-import asyncio
-import importlib.util
 from pathlib import Path
+from time import sleep
+
+import requests
 
 # varux klasörünü Python yoluna ekle (modülleri bulsun diye)
 BASE_DIR = Path(__file__).resolve().parent
 VARUX_DIR = BASE_DIR / "varux"
 sys.path.insert(0, str(VARUX_DIR))
+ORCHESTRATOR_API = os.getenv("VARUX_ORCH_URL", "http://127.0.0.1:5001")
 
 # Gerekli modül dizini var mı kontrol et
 if not VARUX_DIR.exists():
@@ -46,103 +48,55 @@ LOGO = f"""
    {Fore.WHITE}{Style.BRIGHT}           ELITE EDITION v1.0 - 2025
 """
 
-MODULES = {
-    "industrial_recon": {
-        "file": "industrial_recon.py",
-        "function": "main",
-        "async": False,
-        "description": "Endüstriyel ağ pasif/aktif keşif",
-    },
-    "noxım": {
-        "file": "noxım.py",
-        "function": "main",
-        "async": False,
-        "description": "Web ve SQLi odaklı tarama",
-    },
-    "varuxctl": {
-        "file": "varuxctl.py",
-        "function": "main",
-        "async": True,
-        "description": "Tam otomatik saldırı simülasyonu",
-    },
-    "ot_discovery": {
-        "file": "VARUX OT Discovery Framework.py",
-        "function": "main_enhanced",
-        "async": True,
-        "description": "ICS/SCADA topoloji ve varlık keşfi",
-    },
-    "sqlmap_wrapper": {
-        "file": "sqlmap_wrapper.py",
-        "function": "run_advanced_scan",
-        "async": False,
-        "description": "SQLMap elit sarmalayıcı ile otomatik zafiyet analizi",
-        "class": "SQLMapWrapper",
-    },
-    "ai_assistant": {
-        "file": "ai_assistant.py",
-        "function": "generate_assistance",
-        "async": False,
-        "description": "OpenAI destekli güvenlik/kod asistanı",
-        "class": "AIAssistant",
-    },
-}
-
-TERMS_MANAGER = TermsManager(source="cli")
-
-
-def enforce_terms() -> bool:
-    """Require terms acceptance before running any module."""
-
-    status = TERMS_MANAGER.get_status()
-    if status.get("accepted"):
-        return True
-
-    clear_screen()
-    print(f"{Fore.YELLOW}{TERMS_NOTICE}\n")
-    decision = input(f"{Fore.CYAN}Kullanım şartlarını kabul ediyor musunuz? (E/h): {Fore.WHITE}").strip().lower()
-
-    if decision not in {"e", "evet", "y", "yes"}:
-        TERMS_MANAGER.record_decision(False, status.get("mode", "passive"))
-        print(f"\n{Fore.RED}Onay verilmedi. Modüller çalıştırılamaz ve işlem audit kaydına işlendi.")
-        return False
-
-    mode_choice = input(
-        f"{Fore.CYAN}Aktif tarama modlarını da etkinleştirmek istiyor musunuz? "
-        f"[varsayılan: pasif]: {Fore.WHITE}"
-    ).strip().lower()
-    mode = "active" if mode_choice in {"e", "evet", "y", "yes", "a", "aktif", "active"} else "passive"
-    TERMS_MANAGER.record_decision(True, mode)
-
-    print(
-        f"\n{Fore.GREEN}Onay alındı. Varsayılan pasif mod korunuyor;"
-        f" seçilen tarama modu: {mode}."
-    )
-    return True
+from varux.core.modules import MODULE_REGISTRY
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-def load_module(module_path):
-    """Boşluklu dosya adları için güvenli modül yükleyici.
 
-    ``spec_from_file_location`` nadiren de olsa ``None`` döndürebilir veya
-    "loader" içermeyebilir. Bu durumda mevcut kod ``AttributeError`` ile
-    kullanıcıyı yarı yolda bırakıyordu. Yükleyici bulunamazsa anlaşılır bir
-    ``RuntimeError`` fırlatarak hangi dosyanın yüklenemediğini bildiriyoruz ve
-    beklenmedik hataların önüne geçiyoruz.
-    """
+def _submit_task(module_key: str, payload: dict) -> tuple[bool, str | None]:
+    try:
+        response = requests.post(f"{ORCHESTRATOR_API}/api/tasks", json={"module": module_key, "payload": payload}, timeout=10)
+        if response.status_code >= 300:
+            print(f"{Fore.RED}Görev kuyruğuna eklenemedi: {response.text}")
+            return False, None
+        data = response.json()
+        return True, data.get("job_id")
+    except Exception as exc:
+        print(f"{Fore.RED}Orkestratör API'ye ulaşılamadı ({ORCHESTRATOR_API}): {exc}")
+        return False, None
 
-    spec = importlib.util.spec_from_file_location(
-        module_path.stem.replace(" ", "_"),  # Boşlukları _ ile değiştir
-        str(module_path)
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Modül yüklenemedi: {module_path}")
 
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_path.stem.replace(" ", "_")] = module
-    spec.loader.exec_module(module)
-    return module
+def _poll_job(job_id: str):
+    status = "PENDING"
+    while status not in {"SUCCESS", "FAILED"}:
+        try:
+            resp = requests.get(f"{ORCHESTRATOR_API}/api/tasks/{job_id}", timeout=10)
+            if resp.status_code >= 300:
+                print(f"{Fore.RED}Durum sorgusu başarısız: {resp.text}")
+                return
+            job_info = resp.json()
+            status = job_info.get("status", "UNKNOWN")
+            print(f"{Fore.CYAN}Durum: {status} (Job: {job_id})")
+            if status in {"SUCCESS", "FAILED"}:
+                result = job_info.get("result")
+                if result:
+                    print(f"{Fore.GREEN if status == 'SUCCESS' else Fore.RED}{result}")
+                break
+        except Exception as exc:
+            print(f"{Fore.RED}Durum okunamadı: {exc}")
+            break
+        sleep(2)
+
+
+def run_health_check():
+    try:
+        resp = requests.get(f"{ORCHESTRATOR_API}/api/health", timeout=5)
+        worker_resp = requests.get(f"{ORCHESTRATOR_API}/api/health/workers", timeout=5)
+        print(f"{Fore.GREEN}Queue sağlığı: {resp.json()}")
+        print(f"{Fore.GREEN}Worker durumu: {worker_resp.json()}")
+    except Exception as exc:
+        print(f"{Fore.RED}Sağlık sorgusu başarısız: {exc}")
 
 def parse_cli_args():
     parser = argparse.ArgumentParser(
@@ -150,7 +104,7 @@ def parse_cli_args():
     )
     parser.add_argument(
         "--module",
-        choices=MODULES.keys(),
+        choices=MODULE_REGISTRY.keys(),
         help="Menüye girmeden belirli bir modülü hemen çalıştır",
     )
     parser.add_argument(
@@ -196,64 +150,36 @@ def _load_ai_context(path: Path):
 
 def run_direct_module(args):
     module_key = args.module
-    module_info = MODULES[module_key]
-    module_path = VARUX_DIR / module_info["file"]
-
-    try:
-        module = load_module(module_path)
-    except Exception as exc:
-        print(f"{Fore.RED}Modül yüklenemedi ({module_key}): {exc}")
-        return 1
 
     # SQLMap sarmalayıcısı için hedef kontrolü
-    if module_key == "sqlmap_wrapper":
-        target = args.target
-        if not target:
-            print(f"{Fore.RED}SQLMap Wrapper doğrudan çalıştırmada --target zorunlu.")
-            return 2
-        wrapper = getattr(module, module_info["class"])()
-        if not wrapper.available():
-            print(f"{Fore.RED}SQLMap bulunamadı veya PATH içinde değil.")
-            return 3
-        wrapper.run_advanced_scan(target)
-        return 0
+    if module_key == "sqlmap_wrapper" and not args.target:
+        print(f"{Fore.RED}SQLMap Wrapper doğrudan çalıştırmada --target zorunlu.")
+        return 2
 
-    # AI asistanı için prompt ve bağlam doğrulaması
-    if module_key == "ai_assistant":
-        prompt = args.prompt
-        if not prompt:
-            print(f"{Fore.RED}AI asistanı için --prompt parametresi zorunlu.")
-            return 4
+    if module_key == "ai_assistant" and not args.prompt:
+        print(f"{Fore.RED}AI asistanı için --prompt parametresi zorunlu.")
+        return 4
 
-        context = _load_ai_context(args.context) if args.context else None
-        if context is None and args.context:
+    payload = {}
+    if args.target:
+        payload["target"] = args.target
+    if args.prompt:
+        payload["prompt"] = args.prompt
+    if args.notes:
+        payload["notes"] = args.notes
+    if args.context:
+        context = _load_ai_context(args.context)
+        if context is None:
             return 5
+        payload["context"] = context
+    if args.api_key:
+        payload["api_key"] = args.api_key
 
-        AssistantClass = getattr(module, module_info["class"])
-        assistant = AssistantClass(api_key=args.api_key)
-        if not assistant.available():
-            print(f"{Fore.RED}OpenAI API anahtarı bulunamadı veya geçersiz.")
-            return 6
-        context = context or {}
-        if args.notes:
-            context["notes"] = args.notes
-        result = assistant.generate_assistance(prompt, context)
-        if result.get("error"):
-            print(f"{Fore.RED}Asistan hatası: {result['error']}")
-            return 7
-        print(f"{Fore.GREEN}{result.get('assistant_response')}")
-        return 0
-
-    # Standart modül çağrıları
-    run_func = getattr(module, module_info["function"], None)
-    if run_func is None:
-        print(f"{Fore.RED}Modülde beklenen fonksiyon yok: {module_info['function']}")
-        return 8
-
-    if module_info["async"]:
-        asyncio.run(run_func())
-    else:
-        run_func()
+    ok, job_id = _submit_task(module_key, payload)
+    if not ok:
+        return 9
+    print(f"{Fore.GREEN}Görev kuyruğa eklendi: {job_id}")
+    _poll_job(job_id)
     return 0
 
 def main_menu():
@@ -275,86 +201,44 @@ def main_menu():
         secim = input(f"{Fore.CYAN}Seçiminiz (1-7): {Fore.WHITE}").strip()
 
         if secim == "1":
-            try:
-                industrial_path = VARUX_DIR / "industrial_recon.py"
-                module = load_module(industrial_path)
-                # Modülün ana fonksiyonunu çağır (koduna göre uyarla, örnek: module.main())
-                if hasattr(module, 'main'):
-                    module.main()
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'main' fonksiyonu yok. Kodunu kontrol et.")
-            except Exception as e:
-                print(f"{Fore.RED}industrial_recon hatası: {e}")
+            ok, job_id = _submit_task("industrial_recon", {})
+            if ok:
+                _poll_job(job_id)
 
         elif secim == "2":
-            try:
-                noxim_path = VARUX_DIR / "noxım.py"
-                module = load_module(noxim_path)
-                if hasattr(module, 'main'):
-                    module.main()
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'main' fonksiyonu yok.")
-            except Exception as e:
-                print(f"{Fore.RED}noxım hatası: {e}")
+            ok, job_id = _submit_task("noxım", {})
+            if ok:
+                _poll_job(job_id)
 
         elif secim == "3":
-            try:
-                varuxctl_path = VARUX_DIR / "varuxctl.py"
-                module = load_module(varuxctl_path)
-                if hasattr(module, 'main'):
-                    asyncio.run(module.main())
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'main' fonksiyonu yok.")
-            except Exception as e:
-                print(f"{Fore.RED}varuxctl hatası: {e}")
+            ok, job_id = _submit_task("varuxctl", {})
+            if ok:
+                _poll_job(job_id)
 
         elif secim == "4":
-            try:
-                ot_path = VARUX_DIR / "VARUX OT Discovery Framework.py"
-                module = load_module(ot_path)
-                if hasattr(module, 'main_enhanced'):
-                    asyncio.run(module.main_enhanced())
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'main_enhanced' fonksiyonu yok.")
-            except Exception as e:
-                print(f"{Fore.RED}OT Framework hatası: {e}")
+            ok, job_id = _submit_task("ot_discovery", {})
+            if ok:
+                _poll_job(job_id)
 
         elif secim == "5":
-            try:
-                sqlmap_path = VARUX_DIR / "sqlmap_wrapper.py"
-                module = load_module(sqlmap_path)
-                if hasattr(module, 'SQLMapWrapper'):
-                    target = input(f"{Fore.CYAN}Hedef URL (örnek: http://site.com/vuln.php?id=1): {Fore.WHITE}")
-                    wrapper = module.SQLMapWrapper()
-                    if wrapper.available():
-                        wrapper.run_advanced_scan(target)
-                    else:
-                        print(f"{Fore.RED}SQLMap bulunamadı! Lütfen sqlmap kurun.")
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'SQLMapWrapper' sınıfı yok.")
-            except Exception as e:
-                print(f"{Fore.RED}sqlmap_wrapper hatası: {e}")
+            target = input(f"{Fore.CYAN}Hedef URL (örnek: http://site.com/vuln.php?id=1): {Fore.WHITE}")
+            if target:
+                ok, job_id = _submit_task("sqlmap_wrapper", {"target": target})
+                if ok:
+                    _poll_job(job_id)
+            else:
+                print(f"{Fore.RED}Geçerli hedef girilmedi.")
 
         elif secim == "6":
-            try:
-                assistant_path = VARUX_DIR / "ai_assistant.py"
-                module = load_module(assistant_path)
-                if hasattr(module, 'AIAssistant'):
-                    assistant = module.AIAssistant()
-                    if not assistant.available():
-                        print(f"{Fore.RED}OpenAI API anahtarı bulunamadı (OPENAI_API_KEY).")
-                    else:
-                        prompt = input(f"{Fore.CYAN}Asistan isteği: {Fore.WHITE}")
-                        notes = input(f"{Fore.CYAN}Ek bağlam/özet (opsiyonel): {Fore.WHITE}")
-                        result = assistant.generate_assistance(prompt, {'notes': notes})
-                        if result.get('error'):
-                            print(f"{Fore.RED}Asistan hatası: {result['error']}")
-                        else:
-                            print(f"\n{Fore.GREEN}Yanıt ({result.get('model', 'OpenAI')}):\n{Fore.WHITE}{result.get('assistant_response')}")
-                else:
-                    print(f"{Fore.YELLOW}Modül yüklendi ama 'AIAssistant' sınıfı yok.")
-            except Exception as e:
-                print(f"{Fore.RED}ai_assistant hatası: {e}")
+            prompt = input(f"{Fore.CYAN}Asistan isteği: {Fore.WHITE}")
+            notes = input(f"{Fore.CYAN}Ek bağlam/özet (opsiyonel): {Fore.WHITE}")
+            if prompt:
+                payload = {"prompt": prompt, "notes": notes}
+                ok, job_id = _submit_task("ai_assistant", payload)
+                if ok:
+                    _poll_job(job_id)
+            else:
+                print(f"{Fore.RED}Geçerli prompt girilmedi.")
 
         elif secim.lower() == "d":
             run_health_check()
@@ -376,17 +260,12 @@ if __name__ == "__main__":
 
     if args.list:
         print(f"{Fore.CYAN}VARUX Atlas Engine modülleri:\n")
-        for key, info in MODULES.items():
+        for key, info in MODULE_REGISTRY.items():
             print(f" - {key} -> {info['description']} ({info['file']})")
         sys.exit(0)
 
     if args.module:
-        if not enforce_terms():
-            sys.exit(10)
         sys.exit(run_direct_module(args))
-
-    if not enforce_terms():
-        sys.exit(10)
 
     try:
         main_menu()

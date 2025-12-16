@@ -32,8 +32,9 @@ flowchart TD
     end
 
     subgraph ORC["Orchestrator & Yönetim"]
-        B1["Atlas Orchestrator"]
-        B2["Görev Kuyruğu / Paralel Çalıştırıcı"]
+        B1["Atlas Orchestrator API"]
+        B2["Redis + RQ Görev Kuyruğu"]
+        B3["Worker Havuzu"]
     end
 
     subgraph MOD["Güvenlik Modülleri"]
@@ -55,6 +56,7 @@ flowchart TD
     A2 --> B1
 
     B1 --> B2
+    B2 --> B3
     B1 --> MOD
 
     M1 --> DB
@@ -69,6 +71,26 @@ flowchart TD
     RP --> A1
     RP --> A2
     LG --> RP
+```
+
+### Asenkron Görev Orkestrasyonu
+```mermaid
+sequenceDiagram
+    participant CLI as CLI / Dashboard
+    participant API as Orchestrator API (Flask)
+    participant Q as Redis + RQ Queue
+    participant W as Worker
+    participant Mod as VARUX Modülü
+
+    CLI->>API: /api/tasks ile iş emri gönder
+    API->>Q: Job enqueue (payload, timeout, retry)
+    W-->>Q: İş çek & durum=RUNNING
+    W->>Mod: Modül fonksiyonunu çalıştır (timeout + retry/backoff)
+    Mod-->>W: Sonuç / hata
+    W-->>Q: Durum=SUCCESS/FAILED + meta
+    CLI->>API: /api/tasks/<id> ile durum sorgula
+    API-->>CLI: PENDING/RUNNING/FAILED/SUCCESS
+    CLI-->>User: Durum & çıktı
 ```
 
 ### Modül Veri Akışı
@@ -111,6 +133,20 @@ pip install -r varux/requirements.txt
 
 ## 💻 Hızlı Başlangıç
 
+### Orchestrator API & Worker
+Önce API ve worker'ı ayağa kaldırın. Varsayılan Redis adresi `redis://localhost:6379/0` ve API portu `5001`:
+```bash
+# Orchestrator REST API
+python -m varux.core.orchestrator_api
+
+# Ayrı bir terminalde RQ worker (aynı dizinde çalıştırın)
+rq worker varux-tasks
+
+# Sağlık kontrolleri
+curl http://127.0.0.1:5001/api/health
+curl http://127.0.0.1:5001/api/health/workers
+```
+
 ### CLI Orkestratör (Önerilen)
 Projeyi kök dizinden çalıştırın:
 ```bash
@@ -124,7 +160,7 @@ Etkileşimli menüye girmeden spesifik modülleri çalıştırabilirsiniz:
 # Tüm modülleri listele
 python varux.py --list
 
-# SQLMap Wrapper ile hedef URL taraması
+# SQLMap Wrapper ile hedef URL taraması (RQ kuyruğu üstünden)
 python varux.py --module sqlmap_wrapper --target "http://site.com/vuln.php?id=1"
 
 # AI asistanından yanıt al (isteğe bağlı bağlam dosyası ve notlar)
